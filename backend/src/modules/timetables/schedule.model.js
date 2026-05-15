@@ -26,6 +26,7 @@ const scheduleSchema = new mongoose.Schema(
     status: { type: String, enum: ['draft', 'published', 'archived'], default: 'draft' },
     version: { type: Number, default: 1 },
     sessions: [sessionSchema],
+    original_sessions: [sessionSchema], // immutable snapshot set by solver on first write
     published_at: { type: Date },
   },
   { timestamps: { createdAt: 'created_at', updatedAt: 'updated_at' } }

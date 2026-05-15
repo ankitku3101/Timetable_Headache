@@ -70,9 +70,9 @@ export function AppShell({ children }: { children: React.ReactNode }) {
 
   useEffect(() => {
     setUser(getUser());
-    const saved = localStorage.getItem("theme") === "dark";
-    setDark(saved);
-    document.documentElement.classList.toggle("dark", saved);
+    // Read from the DOM — inline script in layout.tsx already applied the class
+    const isDark = document.documentElement.classList.contains("dark");
+    setDark(isDark);
   }, []);
 
   const toggleTheme = () => {

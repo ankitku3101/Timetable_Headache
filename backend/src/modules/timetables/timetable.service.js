@@ -1,9 +1,11 @@
 const AppError = require('../../common/errors/AppError');
 const repo = require('./timetable.repository');
+const Schedule = require('./schedule.model');
 const { dispatchSolverJob } = require('./queue.service');
 const { explainConflict } = require('../../integrations/gemini');
 const notificationService = require('../notifications/notification.service');
 const User = require('../users/user.model');
+const checker = require('./constraint-checker.service');
 
 const getAll = async (query) => {
   const { semesterId, deptId, status, page = 1, limit = 20 } = query;
@@ -79,8 +81,10 @@ const streamStatus = async (scheduleId, send, onClose) => {
 
       const allSettled = jobs.every((j) => j.status === 'done' || j.status === 'failed');
       const anyRunning = jobs.some((j) => j.status === 'running');
+      const anyPending = jobs.some((j) => j.status === 'pending');
       const anyFailed  = jobs.some((j) => j.status === 'failed');
 
+      if (anyPending && !anyRunning) send('pending', { jobs: statuses });
       if (anyRunning) send('running', { jobs: statuses });
 
       if (allSettled) {
@@ -163,4 +167,83 @@ const explainScheduleConflict = async (scheduleId) => {
   return { explanation };
 };
 
-module.exports = { getAll, getById, generate, getStatus, streamStatus, remove, lock, publish, explainScheduleConflict };
+const moveSession = async (scheduleId, sessionIdx, newDay, newSlot) => {
+  const schedule = await repo.findScheduleById(scheduleId);
+  if (!schedule) throw new AppError('Schedule not found', 404, 'NOT_FOUND');
+  if (schedule.status === 'published') {
+    throw new AppError('Published timetables cannot be edited', 400, 'INVALID_STATE');
+  }
+
+  const idx = parseInt(sessionIdx, 10);
+  if (Number.isNaN(idx) || idx < 0 || idx >= schedule.sessions.length) {
+    throw new AppError('Invalid session index', 400, 'INVALID');
+  }
+
+  const day  = parseInt(newDay, 10);
+  const slot = parseInt(newSlot, 10);
+  if (Number.isNaN(day) || Number.isNaN(slot)) {
+    throw new AppError('new_day and new_slot must be integers', 400, 'INVALID');
+  }
+
+  const deptId     = schedule.dept_id?._id     ?? schedule.dept_id;
+  const semesterId = schedule.semester_id?._id  ?? schedule.semester_id;
+
+  const result = await checker.validateMove({
+    sessions:   schedule.sessions,
+    movingIdx:  idx,
+    newDay:     day,
+    newSlot:    slot,
+    deptId,
+    semesterId,
+  });
+
+  if (!result.valid) {
+    throw new AppError(result.reason, 400, 'CONSTRAINT_VIOLATION');
+  }
+
+  await Schedule.findByIdAndUpdate(scheduleId, {
+    $set: {
+      [`sessions.${idx}.day`]:  day,
+      [`sessions.${idx}.slot`]: slot,
+    },
+  });
+
+  return { moved: true };
+};
+
+const getSessionAlternatives = async (scheduleId, sessionIdx) => {
+  const schedule = await repo.findScheduleById(scheduleId);
+  if (!schedule) throw new AppError('Schedule not found', 404, 'NOT_FOUND');
+
+  const idx = parseInt(sessionIdx, 10);
+  if (Number.isNaN(idx) || idx < 0 || idx >= schedule.sessions.length) {
+    throw new AppError('Invalid session index', 400, 'INVALID');
+  }
+
+  const deptId     = schedule.dept_id?._id     ?? schedule.dept_id;
+  const semesterId = schedule.semester_id?._id  ?? schedule.semester_id;
+
+  return checker.getAlternatives({
+    sessions:   schedule.sessions,
+    movingIdx:  idx,
+    deptId,
+    semesterId,
+  });
+};
+
+const reset = async (scheduleId) => {
+  const schedule = await repo.findScheduleById(scheduleId);
+  if (!schedule) throw new AppError('Schedule not found', 404, 'NOT_FOUND');
+  if (schedule.status === 'published') {
+    throw new AppError('Published timetables cannot be reset', 400, 'INVALID_STATE');
+  }
+  if (!schedule.original_sessions?.length) {
+    throw new AppError('No original snapshot available for this timetable', 400, 'NO_SNAPSHOT');
+  }
+  await Schedule.findByIdAndUpdate(scheduleId, {
+    $set: { sessions: schedule.original_sessions },
+  });
+  return { reset: true };
+};
+
+module.exports = { getAll, getById, generate, getStatus, streamStatus, remove, lock, publish, explainScheduleConflict, moveSession, getSessionAlternatives, reset };

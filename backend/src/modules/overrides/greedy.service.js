@@ -17,18 +17,26 @@ const findSubstitutes = async ({ dept_id, date, slot, subject_id }) => {
   const allFaculty = await Faculty.find({ dept_id, status: 'active' });
 
   // Faculty busy via published timetable on this day/slot
+  // A multi-slot session starting at s.slot occupies slots s.slot … s.slot + s.duration_slots - 1,
+  // so we must block any faculty whose session overlaps the requested slotIndex.
   const publishedSchedules = await Schedule.find({ dept_id, status: 'published' });
   const busyFacultyIds = new Set();
   publishedSchedules.forEach((sched) => {
     sched.sessions.forEach((s) => {
-      if (s.day === dayOfWeek && s.slot === slotIndex) {
+      const dur = s.duration_slots || 1;
+      const occupies = s.day === dayOfWeek
+        && slotIndex >= s.slot
+        && slotIndex < s.slot + dur;
+      if (occupies) {
         busyFacultyIds.add(s.faculty_id.toString());
       }
     });
   });
 
   // Faculty busy via existing overrides on this date/slot
-  const existingOverrides = await DailyOverride.find({ date: new Date(date) });
+  const dayStart = new Date(date); dayStart.setHours(0, 0, 0, 0);
+  const dayEnd   = new Date(date); dayEnd.setHours(23, 59, 59, 999);
+  const existingOverrides = await DailyOverride.find({ date: { $gte: dayStart, $lte: dayEnd } });
   existingOverrides.forEach((o) => {
     if (o.slot?.period === slotIndex && o.substitute_teacher_id) {
       busyFacultyIds.add(o.substitute_teacher_id.toString());

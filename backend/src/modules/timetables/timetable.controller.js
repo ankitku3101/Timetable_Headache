@@ -47,4 +47,23 @@ const remove = async (req, res, next) => {
   try { success(res, await service.remove(req.params.scheduleId)); } catch (err) { next(err); }
 };
 
-module.exports = { getAll, getById, generate, getStatus, stream, lock, publish, explainConflict, remove };
+const moveSession = async (req, res, next) => {
+  try {
+    const { scheduleId, sessionIdx } = req.params;
+    const { new_day, new_slot } = req.body;
+    success(res, await service.moveSession(scheduleId, sessionIdx, new_day, new_slot));
+  } catch (err) { next(err); }
+};
+
+const getAlternatives = async (req, res, next) => {
+  try {
+    const { scheduleId, sessionIdx } = req.params;
+    success(res, await service.getSessionAlternatives(scheduleId, sessionIdx));
+  } catch (err) { next(err); }
+};
+
+const reset = async (req, res, next) => {
+  try { success(res, await service.reset(req.params.scheduleId)); } catch (err) { next(err); }
+};
+
+module.exports = { getAll, getById, generate, getStatus, stream, lock, publish, explainConflict, remove, moveSession, getAlternatives, reset };

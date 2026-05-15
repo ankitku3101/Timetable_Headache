@@ -129,10 +129,26 @@ def process_job(job):
             print(f'[WORKER] Job {job_id} INFEASIBLE')
             return
 
-        # Write sessions back to schedule
+        # Post-solve: log all sessions for quick verification
+        DAY_NAMES = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat']
+        print(f'[WORKER] Session dump ({len(sessions)} total):')
+        for sess in sessions:
+            fid  = sess.get('faculty_id', '?')
+            sid  = sess.get('subject_id', '?')
+            day  = sess.get('day', '?')
+            slot = sess.get('slot', '?')
+            dur  = sess.get('duration_slots', 1)
+            # Resolve names from loaded lists for readability
+            fac_name  = next((f.get('name', fid) for f in faculty_list if str(f['_id']) == str(fid)), fid)
+            subj_code = next((s.get('code', sid) for s in subject_list if str(s['_id']) == str(sid)), sid)
+            subj_type = next((s.get('type', '') for s in subject_list if str(s['_id']) == str(sid)), '')
+            day_name  = DAY_NAMES[day - 1] if isinstance(day, int) and 1 <= day <= 6 else str(day)
+            print(f'[WORKER]   {fac_name:<25} {subj_code:<10} ({subj_type:<8}) {day_name} slot={slot} dur={dur}')
+
+        # Write sessions back to schedule; preserve original_sessions as the immutable baseline
         db.schedules.update_one(
             {'_id': oid(schedule_id)},
-            {'$set': {'sessions': sessions, 'status': 'draft'}}
+            {'$set': {'sessions': sessions, 'original_sessions': sessions, 'status': 'draft'}}
         )
 
         update_job(job_id, 'done',

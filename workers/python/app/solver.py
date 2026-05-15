@@ -29,81 +29,151 @@ def solve(faculty_list, subject_list, room_list, constraints, allocation_map=Non
         subj.get('code', '').upper(): i for i, subj in enumerate(subject_list)
     }
 
+    def _match_faculty_name(query_name):
+        """
+        Return list of faculty indices whose name matches query_name.
+        Matching strategy (most-specific first):
+          1. Exact full-name match.
+          2. Query is a substring of a stored name or vice-versa.
+          3. Any significant word (len > 2) in the query appears in a stored name.
+        Returns all matches found at the first level that produces hits.
+        """
+        q = query_name.lower().strip()
+        if not q:
+            return []
+        # Level 1 – exact
+        if q in faculty_name_index:
+            return [faculty_name_index[q]]
+        # Level 2 – substring
+        lvl2 = [fidx for fname, fidx in faculty_name_index.items()
+                if q in fname or fname in q]
+        if lvl2:
+            return lvl2
+        # Level 3 – significant-word overlap
+        q_words = {w for w in q.split() if len(w) > 2}
+        lvl3 = [fidx for fname, fidx in faculty_name_index.items()
+                if q_words & {w for w in fname.split() if len(w) > 2}]
+        return lvl3
+
+    def _clean_days(raw):
+        """Convert raw day list to validated ints in [0, DAYS). Silently drop bad values."""
+        out = []
+        for v in (raw or []):
+            try:
+                d = int(v)
+                if 0 <= d < DAYS:
+                    out.append(d)
+            except (TypeError, ValueError):
+                pass
+        return out
+
+    def _clean_slots(raw):
+        """Convert raw slot list to validated ints in [0, SLOTS). Silently drop bad values."""
+        out = []
+        for v in (raw or []):
+            try:
+                t = int(v)
+                if 0 <= t < SLOTS:
+                    out.append(t)
+            except (TypeError, ValueError):
+                pass
+        return out
+
     # Parsed constraint rules extracted from DB constraints
     extra_unavailable = {}   # (f_idx, d, t) → True  (block this slot for this faculty)
     extra_max_consecutive = {}  # f_idx → max_consecutive override
     subject_time_blocks = {}    # (s_idx, d, t) → True  (block this slot for this subject)
 
+    DAY_NAMES = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat']
+
+    print(f'[SOLVER] Processing {len(constraints)} constraint(s) from DB')
     for c in constraints:
         if c.get('status') != 'active':
             continue
-        pj = c.get('parsed_json') or {}
-        rule = pj.get('rule') or {}
-        entities = pj.get('entities') or {}
+        try:
+            pj = c.get('parsed_json') or {}
+            if not isinstance(pj, dict):
+                continue
+            rule = pj.get('rule') or {}
+            entities = pj.get('entities') or {}
+            if not isinstance(rule, dict):
+                continue
 
-        # Resolve faculty by name
-        f_name = (entities.get('faculty_name') or '').lower().strip()
-        f_indices = []
-        if f_name:
-            for fname_key, fidx in faculty_name_index.items():
-                if f_name in fname_key or fname_key in f_name:
-                    f_indices.append(fidx)
+            faculty_name_query = entities.get('faculty_name') or ''
+            # Resolve faculty by name
+            f_indices = _match_faculty_name(faculty_name_query)
 
-        # Resolve subject by code
-        s_code = (entities.get('subject_code') or '').upper().strip()
-        s_indices = []
-        if s_code and s_code in subject_code_index:
-            s_indices.append(subject_code_index[s_code])
+            # Resolve subject by code
+            s_code = (entities.get('subject_code') or '').upper().strip()
+            s_indices = [subject_code_index[s_code]] if s_code in subject_code_index else []
 
-        unavail_days  = rule.get('unavailable_days') or []
-        unavail_slots = rule.get('unavailable_slots') or []
-        max_consec    = rule.get('max_consecutive')
+            unavail_days  = _clean_days(rule.get('unavailable_days'))
+            unavail_slots = _clean_slots(rule.get('unavailable_slots'))
+            max_consec    = rule.get('max_consecutive')
 
-        # Apply faculty unavailability
-        if f_indices and (unavail_days or unavail_slots):
-            for fi in f_indices:
-                if unavail_days and not unavail_slots:
-                    # Block entire day for faculty
-                    for d in unavail_days:
-                        if 0 <= d < DAYS:
+            # --- Diagnostic log for every constraint ---
+            matched_names = [faculty_list[fi]['name'] for fi in f_indices] if f_indices else []
+            print(f'[SOLVER] Constraint: "{pj.get("summary", c.get("_id"))}"')
+            if faculty_name_query:
+                if f_indices:
+                    print(f'[SOLVER]   Faculty query "{faculty_name_query}" → matched {matched_names} (indices {f_indices})')
+                else:
+                    print(f'[SOLVER]   Faculty query "{faculty_name_query}" → NO MATCH in faculty list')
+                    print(f'[SOLVER]   Available faculty names: {list(faculty_name_index.keys())}')
+            if unavail_days:
+                day_names = [DAY_NAMES[d] for d in unavail_days if 0 <= d < len(DAY_NAMES)]
+                print(f'[SOLVER]   Blocking days: {unavail_days} ({day_names})')
+            if unavail_slots:
+                print(f'[SOLVER]   Blocking slots: {unavail_slots}')
+            if not f_indices and not s_indices:
+                print(f'[SOLVER]   WARNING: constraint has no matched faculty or subject — will be ignored')
+
+            # Apply faculty unavailability
+            if f_indices and (unavail_days or unavail_slots):
+                for fi in f_indices:
+                    if unavail_days and not unavail_slots:
+                        # Block entire day for faculty
+                        for d in unavail_days:
                             for t in range(SLOTS):
                                 extra_unavailable[(fi, d, t)] = True
-                elif unavail_slots and not unavail_days:
-                    # Block specific slots on all days
-                    for t in unavail_slots:
-                        if 0 <= t < SLOTS:
+                    elif unavail_slots and not unavail_days:
+                        # Block specific slots on all days
+                        for t in unavail_slots:
                             for d in range(DAYS):
                                 extra_unavailable[(fi, d, t)] = True
-                else:
-                    # Block specific slots on specific days
-                    for d in unavail_days:
-                        for t in unavail_slots:
-                            if 0 <= d < DAYS and 0 <= t < SLOTS:
+                    else:
+                        # Block specific slots on specific days
+                        for d in unavail_days:
+                            for t in unavail_slots:
                                 extra_unavailable[(fi, d, t)] = True
 
-        # Apply max consecutive override for faculty
-        if f_indices and max_consec is not None:
-            for fi in f_indices:
-                extra_max_consecutive[fi] = int(max_consec)
+            # Apply max consecutive override for faculty
+            if f_indices and max_consec is not None:
+                for fi in f_indices:
+                    extra_max_consecutive[fi] = int(max_consec)
 
-        # Apply subject timing blocks
-        if s_indices and (unavail_days or unavail_slots):
-            for si in s_indices:
-                if unavail_days and not unavail_slots:
-                    for d in unavail_days:
-                        if 0 <= d < DAYS:
+            # Apply subject timing blocks
+            if s_indices and (unavail_days or unavail_slots):
+                for si in s_indices:
+                    if unavail_days and not unavail_slots:
+                        for d in unavail_days:
                             for t in range(SLOTS):
                                 subject_time_blocks[(si, d, t)] = True
-                elif unavail_slots and not unavail_days:
-                    for t in unavail_slots:
-                        if 0 <= t < SLOTS:
+                    elif unavail_slots and not unavail_days:
+                        for t in unavail_slots:
                             for d in range(DAYS):
                                 subject_time_blocks[(si, d, t)] = True
-                else:
-                    for d in unavail_days:
-                        for t in unavail_slots:
-                            if 0 <= d < DAYS and 0 <= t < SLOTS:
+                    else:
+                        for d in unavail_days:
+                            for t in unavail_slots:
                                 subject_time_blocks[(si, d, t)] = True
+
+        except Exception as exc:
+            print(f'[SOLVER] Skipping malformed constraint (id={c.get("_id")}): {exc}')
+            continue
+
+    print(f'[SOLVER] Constraints applied: {len(extra_unavailable)} faculty slot-blocks, '
+          f'{len(subject_time_blocks)} subject slot-blocks')
 
     model = cp_model.CpModel()
 
@@ -116,6 +186,9 @@ def solve(faculty_list, subject_list, room_list, constraints, allocation_map=Non
 
     # Per-subject slot duration (how many consecutive slots each session occupies)
     durations = [max(1, int(subj.get('session_duration_slots', 1))) for subj in subject_list]
+
+    # Per-subject batch count — labs split students into batches that run as separate sessions
+    batch_counts = [max(1, int(subj.get('batch_count', 1))) for subj in subject_list]
 
     # ── ELIGIBILITY ───────────────────────────────────────────────
 
@@ -146,8 +219,19 @@ def solve(faculty_list, subject_list, room_list, constraints, allocation_map=Non
     # Fallback: if no faculty eligible for a subject, allow all
     for s in range(S):
         if not any(eligible[(s, f)] for f in range(F)):
+            print(f'[SOLVER] Fallback: no eligible faculty for "{subject_list[s].get("code","?")} {subject_list[s].get("name","?")}" — allowing all faculty')
             for f in range(F):
                 eligible[(s, f)] = True
+
+    # Log which subjects each constrained faculty is eligible for
+    constrained_faculty = set(fi for (fi, d, t) in extra_unavailable)
+    for fi in constrained_faculty:
+        fname = faculty_list[fi].get('name', f'idx={fi}')
+        eligible_subjects = [
+            f'{subject_list[s].get("code","?")}({subject_list[s].get("type","?")})'
+            for s in range(S) if eligible[(s, fi)]
+        ]
+        print(f'[SOLVER] Constrained faculty "{fname}" is eligible for: {eligible_subjects}')
 
     # ── VARIABLES ─────────────────────────────────────────────────
     # x[s,f,r,d,t] = 1 means subject s by faculty f in room r on day d starting at slot t.
@@ -191,9 +275,11 @@ def solve(faculty_list, subject_list, room_list, constraints, allocation_map=Non
 
     # ── HARD CONSTRAINTS ─────────────────────────────────────────
 
-    # 1. Each subject gets exactly sessions_per_week sessions
+    # 1. Each subject gets exactly sessions_per_week * batch_count sessions total.
+    #    For batch subjects (labs), each "batch" is a separate scheduling unit so the
+    #    solver places batch_count independent sessions per week (one per batch group).
     for s_idx, subj in enumerate(subject_list):
-        needed = subj.get('sessions_per_week', 1)
+        needed = subj.get('sessions_per_week', 1) * batch_counts[s_idx]
         dur = durations[s_idx]
         terms = [x[(s_idx, f, r, d, t)]
                  for f in range(F) if eligible[(s_idx, f)]
@@ -281,8 +367,7 @@ def solve(faculty_list, subject_list, room_list, constraints, allocation_map=Non
                 for d in range(DAYS):
                     for t in range(SLOTS - dur + 1):
                         if (s, f_idx, r, d, t) in x:
-                            for _ in range(dur):
-                                terms.append(x[(s, f_idx, r, d, t)])
+                            terms.append(x[(s, f_idx, r, d, t)] * dur)
         if terms:
             model.Add(sum(terms) <= max_h)
 
@@ -300,9 +385,9 @@ def solve(faculty_list, subject_list, room_list, constraints, allocation_map=Non
     for f_idx in range(F):
         max_consec = extra_max_consecutive.get(f_idx, MAX_CONSECUTIVE)
         for d in range(DAYS):
-            for start_t in range(SLOTS - max_consec):
+            for start_t in range(SLOTS - max_consec + 1):
                 window = [occupied[(f_idx, d, T)]
-                          for T in range(start_t, start_t + max_consec + 1)
+                          for T in range(start_t, start_t + max_consec)
                           if (f_idx, d, T) in occupied]
                 if window:
                     model.Add(sum(window) <= max_consec)
@@ -317,10 +402,13 @@ def solve(faculty_list, subject_list, room_list, constraints, allocation_map=Non
             if 0 <= d < DAYS and 0 <= T < SLOTS:
                 penalties.extend(sessions_covering_faculty(f_idx, d, T))
 
-    # Penalty 2: Spread sessions — penalise >1 session of same subject on same day
+    # Penalty 2: Spread sessions — penalise more sessions of same subject on same day
+    # than there are batches (e.g., a single-batch subject must not repeat on the same day;
+    # a 3-batch lab may have up to 3 sessions per day, one per batch).
     for s_idx, subj in enumerate(subject_list):
         dur = durations[s_idx]
-        max_per_week = subj.get('sessions_per_week', 1)
+        bc  = batch_counts[s_idx]
+        max_per_week = subj.get('sessions_per_week', 1) * bc
         for d in range(DAYS):
             day_vars = [x[(s_idx, f, r, d, t)]
                         for f in range(F) if eligible[(s_idx, f)]
@@ -331,7 +419,7 @@ def solve(faculty_list, subject_list, room_list, constraints, allocation_map=Non
                 day_count = model.NewIntVar(0, max_per_week, f'dc_{s_idx}_{d}')
                 model.Add(day_count == sum(day_vars))
                 overcrowded = model.NewIntVar(0, max_per_week, f'oc_{s_idx}_{d}')
-                model.Add(overcrowded >= day_count - 1)
+                model.Add(overcrowded >= day_count - bc)
                 penalties.append(overcrowded)
 
     # Penalty 3: Spread sessions across the day — penalise >1 session in same (day, slot)
@@ -363,8 +451,11 @@ def solve(faculty_list, subject_list, room_list, constraints, allocation_map=Non
         return [], 'INFEASIBLE'
 
     sessions = []
+    # Track how many sessions per subject have been emitted so we can assign batch numbers.
+    subject_session_count = [0] * S
     for s_idx, subj in enumerate(subject_list):
         dur = durations[s_idx]
+        bc  = batch_counts[s_idx]
         for f_idx, fac in enumerate(faculty_list):
             if not eligible[(s_idx, f_idx)]:
                 continue
@@ -372,6 +463,8 @@ def solve(faculty_list, subject_list, room_list, constraints, allocation_map=Non
                 for d in range(DAYS):
                     for t in range(SLOTS - dur + 1):
                         if (s_idx, f_idx, r_idx, d, t) in x and solver.Value(x[(s_idx, f_idx, r_idx, d, t)]) == 1:
+                            batch_num = (subject_session_count[s_idx] % bc) + 1
+                            subject_session_count[s_idx] += 1
                             sessions.append({
                                 'faculty_id':     str(fac['_id']),
                                 'subject_id':     str(subj['_id']),
@@ -380,7 +473,7 @@ def solve(faculty_list, subject_list, room_list, constraints, allocation_map=Non
                                 'slot':           t,
                                 'duration_slots': dur,
                                 'is_locked':      False,
-                                'batch':          1,
+                                'batch':          batch_num,
                             })
 
     status_str = 'OPTIMAL' if status == cp_model.OPTIMAL else 'FEASIBLE'

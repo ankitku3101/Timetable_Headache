@@ -15,18 +15,26 @@ Context:
 
 Constraint text: "${rawText}"
 
+IMPORTANT day-number mapping (always use these exact numbers — do NOT use Sunday=0):
+  Monday=0, Tuesday=1, Wednesday=2, Thursday=3, Friday=4, Saturday=5
+
+IMPORTANT slot-number mapping (0-indexed, 8 slots per day):
+  Slot 0 = 08:00–09:00, Slot 1 = 09:00–10:00, Slot 2 = 10:00–11:00,
+  Slot 3 = 11:00–12:00, Slot 4 = 12:00–13:00, Slot 5 = 13:00–14:00 (lunch),
+  Slot 6 = 14:00–15:00, Slot 7 = 15:00–16:00
+
 Return ONLY valid JSON with this structure (no markdown, no explanation):
 {
   "type": "hard" or "soft",
   "category": one of ["faculty_availability", "room_preference", "subject_timing", "workload", "consecutive_slots", "other"],
   "weight": number 1-5 (1=low priority, 5=critical, always 5 for hard constraints),
   "entities": {
-    "faculty_name": string or null,
+    "faculty_name": exact faculty name string as it would appear in a university roster, or null,
     "subject_code": string or null,
     "room": string or null
   },
   "rule": {
-    "unavailable_days": array of day numbers (0=Mon, 1=Tue, 2=Wed, 3=Thu, 4=Fri, 5=Sat) or null,
+    "unavailable_days": array using the day numbers above (Monday=0, Tuesday=1, ..., Saturday=5), or null,
     "unavailable_slots": array of slot numbers (0-7) or null,
     "preferred_days": array or null,
     "preferred_slots": array or null,
@@ -35,15 +43,46 @@ Return ONLY valid JSON with this structure (no markdown, no explanation):
   },
   "summary": one-line human readable summary of the constraint
 }
+
+Example: "Dr. Smith is not available on Mondays" →
+  entities.faculty_name = "Dr. Smith", rule.unavailable_days = [0], rule.unavailable_slots = null
 `;
+
+  logger.info('[Gemini:parseConstraint] Input:', JSON.stringify({ rawText, context }));
+  const t0 = Date.now();
 
   try {
     const result = await model.generateContent(prompt);
-    const text = result.response.text().trim();
-    const clean = text.replace(/```json\n?|\n?```/g, '').trim();
-    return JSON.parse(clean);
+    const rawResponse = result.response.text().trim();
+    logger.info(`[Gemini:parseConstraint] Raw response (${Date.now() - t0}ms):\n${rawResponse}`);
+
+    const clean = rawResponse.replace(/```json\n?|\n?```/g, '').trim();
+    let parsed;
+    try {
+      parsed = JSON.parse(clean);
+    } catch (jsonErr) {
+      logger.error('[Gemini:parseConstraint] JSON.parse failed. Raw text was:\n', rawResponse);
+      throw jsonErr;
+    }
+
+    logger.info('[Gemini:parseConstraint] Parsed result:', JSON.stringify({
+      type:     parsed.type,
+      category: parsed.category,
+      weight:   parsed.weight,
+      entities: parsed.entities,
+      rule:     parsed.rule,
+      summary:  parsed.summary,
+    }, null, 2));
+
+    // Warn on common mistakes Gemini makes with day numbers
+    const days = parsed.rule?.unavailable_days ?? parsed.rule?.preferred_days ?? [];
+    if (days.includes(6) || days.includes(7)) {
+      logger.warn('[Gemini:parseConstraint] Suspicious day value (6 or 7) — Gemini may have used Sunday=0 mapping instead of Monday=0. Days returned:', days);
+    }
+
+    return parsed;
   } catch (err) {
-    logger.error('Gemini constraint parse failed:', err.message);
+    logger.error('[Gemini:parseConstraint] Failed:', err.message);
     throw new Error('Failed to parse constraint with LLM');
   }
 };
@@ -58,11 +97,16 @@ ${JSON.stringify(conflictDetails, null, 2)}
 Respond in plain English, 2-3 sentences max. Be specific about what is conflicting and give one actionable suggestion.
 `;
 
+  logger.info('[Gemini:explainConflict] Input:', JSON.stringify(conflictDetails));
+  const t0 = Date.now();
+
   try {
     const result = await model.generateContent(prompt);
-    return result.response.text().trim();
+    const explanation = result.response.text().trim();
+    logger.info(`[Gemini:explainConflict] Response (${Date.now() - t0}ms):\n${explanation}`);
+    return explanation;
   } catch (err) {
-    logger.error('Gemini conflict explain failed:', err.message);
+    logger.error('[Gemini:explainConflict] Failed:', err.message);
     throw new Error('Failed to explain conflict with LLM');
   }
 };
@@ -72,6 +116,9 @@ Respond in plain English, 2-3 sentences max. Be specific about what is conflicti
  * HOD reviews and tweaks before the CP-SAT solver runs.
  */
 const suggestAllocation = async ({ faculty_list, subject_list, dept_name, semester_name }) => {
+  if (!Array.isArray(faculty_list) || !Array.isArray(subject_list)) {
+    throw new Error('suggestAllocation requires faculty_list and subject_list arrays');
+  }
   const facultySummary = faculty_list.map((f) => ({
     id: f._id,
     name: f.name,
@@ -120,13 +167,36 @@ Return ONLY a valid JSON array (no markdown, no explanation):
 ]
 `;
 
+  logger.info(`[Gemini:suggestAllocation] Input: ${faculty_list.length} faculty, ${subject_list.length} subjects (dept: ${dept_name}, sem: ${semester_name})`);
+  const t0 = Date.now();
+
   try {
     const result = await model.generateContent(prompt);
-    const text = result.response.text().trim();
-    const clean = text.replace(/```json\n?|\n?```/g, '').trim();
-    return JSON.parse(clean);
+    const rawResponse = result.response.text().trim();
+    logger.info(`[Gemini:suggestAllocation] Raw response (${Date.now() - t0}ms):\n${rawResponse}`);
+
+    const clean = rawResponse.replace(/```json\n?|\n?```/g, '').trim();
+    let parsed;
+    try {
+      parsed = JSON.parse(clean);
+    } catch (jsonErr) {
+      logger.error('[Gemini:suggestAllocation] JSON.parse failed. Raw text was:\n', rawResponse);
+      throw jsonErr;
+    }
+
+    if (!Array.isArray(parsed)) {
+      logger.warn('[Gemini:suggestAllocation] Response is not an array — got:', typeof parsed);
+    } else {
+      const lowConf = parsed.filter((a) => a.confidence === 'low');
+      logger.info(`[Gemini:suggestAllocation] Parsed ${parsed.length} allocations. Low-confidence: ${lowConf.length}`);
+      if (lowConf.length) {
+        logger.warn('[Gemini:suggestAllocation] Low-confidence allocations:', JSON.stringify(lowConf.map((a) => ({ subject: a.subject_code, faculty: a.faculty_name, reason: a.reason }))));
+      }
+    }
+
+    return parsed;
   } catch (err) {
-    logger.error('Gemini suggest allocation failed:', err.message);
+    logger.error('[Gemini:suggestAllocation] Failed:', err.message);
     throw new Error('Failed to generate faculty-subject allocation with LLM');
   }
 };

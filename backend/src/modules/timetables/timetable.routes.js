@@ -13,5 +13,8 @@ router.get('/:scheduleId/explain', controller.explainConflict);
 router.delete('/:scheduleId', authorize('admin', 'hod'), controller.remove);
 router.post('/:scheduleId/lock', authorize('admin', 'hod'), controller.lock);
 router.post('/:scheduleId/publish', authorize('admin'), controller.publish);
+router.get('/:scheduleId/sessions/:sessionIdx/alternatives', authorize('admin', 'hod'), controller.getAlternatives);
+router.patch('/:scheduleId/sessions/:sessionIdx/move', authorize('admin', 'hod'), controller.moveSession);
+router.post('/:scheduleId/reset', authorize('admin', 'hod'), controller.reset);
 
 module.exports = router;
