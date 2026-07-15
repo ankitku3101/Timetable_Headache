@@ -22,7 +22,7 @@ flowchart LR
   ORCH --> SSE[SSE Stream]
   SSE --> FE
   API --> LLM[LLM Service]
-  LLM --> ANTH[Anthropic API]
+  LLM --> GEM[Gemini API]
 ```
 
 ### Request lifecycle

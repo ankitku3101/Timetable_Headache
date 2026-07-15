@@ -22,13 +22,13 @@ The hard scheduling problem (semester timetable) is solved by a **Python CP-SAT 
 | Queue | Redis (Docker container on the same EC2 instance) |
 | Solver | Python OR-Tools CP-SAT (worker, Docker on AWS EC2) |
 | Streaming | SSE (Server-Sent Events) |
-| AI | Anthropic API (2 use cases only) |
+| AI | Gemini API (2 use cases only) |
 
 ---
 
 ## Two LLM Touchpoints
 
-The Anthropic API is intentionally limited to:
+The Gemini API is intentionally limited to:
 1. **Constraint parsing** — convert natural language rules into structured constraints
 2. **Conflict explanation** — explain why a timetable is infeasible
 

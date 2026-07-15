@@ -14,7 +14,7 @@ For a plain-language walkthrough of what the system does and how to demo it, see
 | Queue | Redis |
 | Solver | Python + OR-Tools CP-SAT (worker) |
 | Streaming | Server-Sent Events (generation progress) |
-| AI | Anthropic API (constraint parsing, conflict explanation) |
+| AI | Gemini API (constraint parsing, conflict explanation) |
 
 ## Project structure
 
