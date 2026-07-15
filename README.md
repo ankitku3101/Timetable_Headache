@@ -1,5 +1,7 @@
 # Headache Solver — University Timetable Optimizer
 
+**Live demo**: [timetable-headache.vercel.app](https://timetable-headache.vercel.app)
+
 Automated university timetable generation. Admins configure departments, faculty, subjects, rooms, and constraints; a constraint-solving engine generates conflict-free timetables in seconds instead of days of manual scheduling.
 
 For a plain-language walkthrough of what the system does and how to demo it, see [HOW_IT_WORKS.md](HOW_IT_WORKS.md). For the system design rationale, see [architecture.md](architecture.md). For a quick project summary, see [About.md](About.md).
