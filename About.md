@@ -16,11 +16,11 @@ The hard scheduling problem (semester timetable) is solved by a **Python CP-SAT 
 
 | What | Tech |
 |---|---|
-| Frontend | Next.js + TypeScript + Tailwind + shadcn/ui |
-| Backend | Express.js (modular monolith) |
+| Frontend | Next.js + TypeScript + Tailwind + shadcn/ui (Vercel) |
+| Backend | Express.js (modular monolith, Docker on AWS EC2) |
 | Database | MongoDB Atlas |
-| Queue | Redis |
-| Solver | Python OR-Tools CP-SAT (workers) |
+| Queue | Redis (Docker container on the same EC2 instance) |
+| Solver | Python OR-Tools CP-SAT (worker, Docker on AWS EC2) |
 | Streaming | SSE (Server-Sent Events) |
 | AI | Anthropic API (2 use cases only) |
 

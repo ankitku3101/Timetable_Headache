@@ -51,7 +51,7 @@ flowchart LR
 | Solver | Python + OR-Tools CP-SAT | Best-in-class for constraint solving |
 | Streaming | SSE | Simpler than WebSockets for generation progress updates |
 | Auth | JWT or session tokens + RBAC | Works well for admin/HOD/faculty permission tiers |
-| Deployment | Docker | Clear service isolation and repeatable releases |
+| Deployment | Docker Compose on AWS EC2 (backend/worker), Vercel (frontend) | Clear service isolation and repeatable releases |
 
 ### Is the stack a good choice?
 
@@ -67,6 +67,38 @@ Yes, with one important refinement: use Express as the backend API layer, but ke
 - I would not force all scheduling logic into Express. Express should orchestrate, validate, authorize, and aggregate, not solve.
 - If the backend team wants stronger conventions, NestJS is the alternative, but Express is perfectly acceptable if the codebase is organized well.
 - MongoDB is fine for this project because the data model is nested and evolves often, but you should still define strict schemas and indexes.
+
+## 3) Deployment
+
+The frontend, backend, and worker are hosted separately:
+
+| Component | Host | Notes |
+|---|---|---|
+| Frontend | Vercel | Next.js, auto-deployed from `main` |
+| Backend + Worker + Redis | AWS EC2 (single instance) | Docker Compose stack, see below |
+| Database | MongoDB Atlas | Unchanged regardless of compute provider |
+
+### Backend/worker stack (EC2)
+
+A single EC2 instance runs a [docker-compose.yml](../docker-compose.yml) stack with four containers:
+
+- **redis** — internal job queue, not exposed outside the Docker network
+- **backend** — Express API ([backend/Dockerfile](../backend/Dockerfile)), port 8080 internally
+- **worker** — Python CP-SAT solver ([workers/python/Dockerfile](../workers/python/Dockerfile)), consumes the Redis queue
+- **caddy** — reverse proxy + automatic HTTPS (Let's Encrypt) for `timetable.ankit31.me`, routes to `backend`
+
+Secrets (`MONGODB_URI`, `JWT_SECRET`, etc.) live in a `.env` file on the instance only — never committed to git.
+
+### Deploying a change
+
+```bash
+# on the EC2 instance
+cd ~/Timetable_Headache
+git pull
+docker compose up -d --build   # rebuilds backend/worker images if their code changed
+```
+
+`.env` or `Caddyfile` changes don't need a rebuild — `docker compose up -d` (or `docker compose restart caddy`) is enough.
 
 ## 3) Backend Architecture
 
