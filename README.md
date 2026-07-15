@@ -69,6 +69,9 @@ Backend/worker changes are deployed manually: SSH into the EC2 instance and run 
 
 See [backend/API_DOCS.md](backend/API_DOCS.md).
 
-## Contributors
+## About this project
 
-[![Contributors](https://contrib.rocks/image?repo=Adyasha56/Timetable_Headache)](https://github.com/Adyasha56/Timetable_Headache/graphs/contributors)
+This is a capstone project built for the completion of a B.Tech CSE degree, by:
+
+- [Adyasha Nanda](https://github.com/Adyasha56)
+- [Ankit Kumar](https://github.com/ankitku3101)
