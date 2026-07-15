@@ -1,0 +1,3 @@
+timetable.yourdomain.com {
+    reverse_proxy backend:8080
+}
