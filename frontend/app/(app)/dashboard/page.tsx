@@ -1,3 +1,7 @@
+/* Hallmark · genre: modern-minimal · redesign: dashboard (in place)
+ * theme: project shadcn system (amber --primary · Inter + JetBrains Mono)
+ * tone: technical · audience: university admins · data hooks + routes preserved
+ */
 "use client";
 
 import { useEffect, useState } from "react";
@@ -6,7 +10,6 @@ import Link from "next/link";
 import { useQuery } from "@tanstack/react-query";
 import { api } from "@/lib/api";
 import { getUser, type SessionUser } from "@/lib/auth";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 
 type CountResult = { total?: number } | unknown[];
@@ -32,45 +35,56 @@ type SetupItem = {
   required: boolean;
 };
 
-function SetupStep({
-  item,
-  index,
-}: {
-  item: SetupItem;
-  index: number;
-}) {
+function SetupStep({ item, index }: { item: SetupItem; index: number }) {
   const isReady = item.count !== null && item.count > 0;
   const isLoading = item.count === null;
 
   return (
     <Link
       href={item.href}
-      className="flex items-start gap-3 rounded-md p-3 hover:bg-muted/50 transition-colors"
+      className="group flex items-center gap-4 px-4 py-3 transition-colors hover:bg-muted/50"
     >
       <div
-        className={`mt-0.5 flex h-6 w-6 shrink-0 items-center justify-center rounded-full text-xs font-bold ${
+        className={`flex h-7 w-7 shrink-0 items-center justify-center rounded-md border font-mono text-xs font-semibold tabular-nums ${
           isLoading
-            ? "bg-muted text-muted-foreground"
+            ? "border-border bg-muted text-muted-foreground"
             : isReady
-            ? "bg-green-100 text-green-700"
+            ? "border-primary/30 bg-primary/10 text-primary"
             : item.required
-            ? "bg-amber-100 text-amber-700"
-            : "bg-muted text-muted-foreground"
+            ? "border-destructive/30 bg-destructive/10 text-destructive"
+            : "border-border bg-muted text-muted-foreground"
         }`}
       >
-        {isLoading ? "…" : isReady ? "✓" : index + 1}
+        {isLoading ? "··" : isReady ? "✓" : String(index + 1).padStart(2, "0")}
       </div>
-      <div className="flex-1 min-w-0">
+      <div className="min-w-0 flex-1">
         <div className="flex items-center justify-between gap-2">
-          <p className="text-sm font-medium">{item.label}</p>
+          <p className="truncate text-sm font-medium">{item.label}</p>
           {!isLoading && (
-            <span className="text-xs text-muted-foreground shrink-0">
-              {isReady ? `${item.count} added` : item.required ? "⚠ Required" : "Optional"}
+            <span
+              className={`shrink-0 font-mono text-[11px] uppercase tracking-wide tabular-nums ${
+                isReady
+                  ? "text-muted-foreground"
+                  : item.required
+                  ? "text-destructive"
+                  : "text-muted-foreground"
+              }`}
+            >
+              {isReady
+                ? `${item.count} added`
+                : item.required
+                ? "required"
+                : "optional"}
             </span>
           )}
         </div>
-        <p className="text-xs text-muted-foreground mt-0.5">{item.description}</p>
+        <p className="mt-0.5 truncate text-xs text-muted-foreground">
+          {item.description}
+        </p>
       </div>
+      <span className="shrink-0 text-muted-foreground/40 transition-colors group-hover:text-foreground">
+        &rarr;
+      </span>
     </Link>
   );
 }
@@ -135,101 +149,157 @@ export default function DashboardPage() {
     },
   ];
 
-  const allRequiredReady = [deptCount, roomCount, facultyCount, subjectCount, calendarCount].every(
-    (c) => c !== null && c > 0,
-  );
+  const requiredCounts = [deptCount, roomCount, facultyCount, subjectCount, calendarCount];
+  const requiredTotal = requiredCounts.length;
+  const requiredReady = requiredCounts.filter((c) => c !== null && c > 0).length;
+  const anyLoading = requiredCounts.some((c) => c === null);
+  const allRequiredReady = requiredCounts.every((c) => c !== null && c > 0);
+  const progressPct = Math.round((requiredReady / requiredTotal) * 100);
+
+  const metrics = [
+    { label: "Departments", value: deptCount },
+    { label: "Faculty", value: facultyCount },
+    { label: "Subjects", value: subjectCount },
+    { label: "Rooms", value: roomCount },
+    { label: "Calendars", value: calendarCount },
+    { label: "Timetables", value: timetableCount },
+  ];
 
   return (
     <div className="space-y-6">
-      {/* Welcome */}
-      <div>
-        <h2 className="text-2xl font-semibold">
-          Welcome{user?.name ? `, ${user.name.split(" ")[0]}` : ""}
-        </h2>
-        <p className="mt-1 text-sm text-muted-foreground">
+      {/* Header · welcome + readiness status */}
+      <div className="flex flex-col gap-4 border-b border-border pb-5 sm:flex-row sm:items-end sm:justify-between">
+        <div className="min-w-0">
+          <p className="font-mono text-[11px] uppercase tracking-[0.18em] text-muted-foreground">
+            Operations Console
+          </p>
+          <h2 className="mt-1.5 text-2xl font-semibold tracking-tight">
+            Welcome{user?.name ? `, ${user.name.split(" ")[0]}` : ""}
+          </h2>
           {user?.role && (
-            <span className="capitalize font-medium">{user.role}</span>
+            <p className="mt-1 text-sm capitalize text-muted-foreground">
+              Signed in as {user.role}
+            </p>
           )}
-          {" "}— Timetable Optimizer
-        </p>
+        </div>
+
+        <div
+          className={`inline-flex shrink-0 items-center gap-2 rounded-full border px-3 py-1.5 font-mono text-xs uppercase tracking-wide ${
+            anyLoading
+              ? "border-border bg-muted text-muted-foreground"
+              : allRequiredReady
+              ? "border-primary/30 bg-primary/10 text-primary"
+              : "border-destructive/30 bg-destructive/10 text-destructive"
+          }`}
+        >
+          <span
+            aria-hidden
+            className={`h-1.5 w-1.5 rounded-full ${
+              anyLoading
+                ? "bg-muted-foreground"
+                : allRequiredReady
+                ? "bg-primary"
+                : "bg-destructive"
+            }`}
+          />
+          {anyLoading
+            ? "Checking setup…"
+            : allRequiredReady
+            ? "Ready to generate"
+            : "Setup incomplete"}
+        </div>
       </div>
 
-      <div className="grid gap-4 md:grid-cols-2">
-        {/* Setup Checklist */}
-        <Card className="md:col-span-1">
-          <CardHeader>
-            <CardTitle className="text-base">Setup Checklist</CardTitle>
-            <p className="text-xs text-muted-foreground">
-              Complete these steps before generating a timetable.
-            </p>
-          </CardHeader>
-          <CardContent className="divide-y">
+      <div className="grid gap-4 lg:grid-cols-[1.4fr_1fr]">
+        {/* Setup checklist + progress */}
+        <section className="rounded-lg border border-border bg-background">
+          <div className="flex items-center justify-between gap-4 border-b border-border px-4 py-3">
+            <div>
+              <h3 className="text-sm font-semibold">Setup Checklist</h3>
+              <p className="mt-0.5 text-xs text-muted-foreground">
+                Required before generating a timetable.
+              </p>
+            </div>
+            <span className="shrink-0 font-mono text-xs tabular-nums text-muted-foreground">
+              {anyLoading ? "—" : `${requiredReady}/${requiredTotal}`} required
+            </span>
+          </div>
+
+          {/* Progress meter · computed from real counts */}
+          <div className="px-4 pt-3">
+            <div className="h-1.5 w-full overflow-hidden rounded-full bg-muted">
+              <div
+                className="h-full rounded-full bg-primary transition-[width] duration-300 ease-out"
+                style={{ width: anyLoading ? "0%" : `${progressPct}%` }}
+              />
+            </div>
+          </div>
+
+          <div className="mt-2 divide-y divide-border">
             {setupItems.map((item, i) => (
               <SetupStep key={item.href} item={item} index={i} />
             ))}
-          </CardContent>
-        </Card>
+          </div>
+        </section>
 
-        {/* Quick Actions + Summary */}
         <div className="space-y-4">
-          {/* Quick Actions */}
-          <Card>
-            <CardHeader>
-              <CardTitle className="text-base">Quick Actions</CardTitle>
-            </CardHeader>
-            <CardContent className="space-y-2">
+          {/* Quick actions */}
+          <section className="rounded-lg border border-border bg-background">
+            <div className="border-b border-border px-4 py-3">
+              <h3 className="text-sm font-semibold">Quick Actions</h3>
+            </div>
+            <div className="space-y-2 p-4">
               <Button
-                className="w-full justify-start"
+                className="w-full justify-between"
                 onClick={() => router.push("/timetables")}
                 disabled={!allRequiredReady}
               >
                 Generate Timetable
-                {!allRequiredReady && (
-                  <span className="ml-auto text-xs opacity-70">Complete setup first</span>
-                )}
+                <span className="font-mono text-xs opacity-70">
+                  {allRequiredReady ? "→" : "setup first"}
+                </span>
               </Button>
               <Button
                 variant="outline"
-                className="w-full justify-start"
+                className="w-full justify-between"
                 onClick={() => router.push("/overrides")}
               >
                 Record Faculty Absence
+                <span className="font-mono text-xs text-muted-foreground">→</span>
               </Button>
               <Button
                 variant="outline"
-                className="w-full justify-start"
+                className="w-full justify-between"
                 onClick={() => router.push("/constraints")}
               >
                 Add Scheduling Rules
+                <span className="font-mono text-xs text-muted-foreground">→</span>
               </Button>
-            </CardContent>
-          </Card>
+            </div>
+          </section>
 
-          {/* Summary Stats */}
-          <Card>
-            <CardHeader>
-              <CardTitle className="text-base">At a Glance</CardTitle>
-            </CardHeader>
-            <CardContent>
-              <dl className="grid grid-cols-2 gap-3">
-                {[
-                  { label: "Departments", value: deptCount },
-                  { label: "Faculty", value: facultyCount },
-                  { label: "Subjects", value: subjectCount },
-                  { label: "Rooms", value: roomCount },
-                  { label: "Calendars", value: calendarCount },
-                  { label: "Timetables", value: timetableCount },
-                ].map(({ label, value }) => (
-                  <div key={label} className="rounded-md bg-muted/50 px-3 py-2">
-                    <dt className="text-xs text-muted-foreground">{label}</dt>
-                    <dd className="text-xl font-semibold">
-                      {value === null ? "…" : value}
-                    </dd>
-                  </div>
-                ))}
-              </dl>
-            </CardContent>
-          </Card>
+          {/* At a glance · mono tabular metrics */}
+          <section className="rounded-lg border border-border bg-background">
+            <div className="border-b border-border px-4 py-3">
+              <h3 className="text-sm font-semibold">At a Glance</h3>
+            </div>
+            <dl className="grid grid-cols-2 gap-px overflow-hidden rounded-b-lg bg-border">
+              {metrics.map(({ label, value }) => (
+                <div key={label} className="bg-background px-4 py-3">
+                  <dt className="font-mono text-[11px] uppercase tracking-wide text-muted-foreground">
+                    {label}
+                  </dt>
+                  <dd className="mt-1 font-mono text-2xl font-semibold tabular-nums">
+                    {value === null ? (
+                      <span className="text-muted-foreground/50">··</span>
+                    ) : (
+                      value
+                    )}
+                  </dd>
+                </div>
+              ))}
+            </dl>
+          </section>
         </div>
       </div>
     </div>
